@@ -1,0 +1,5 @@
+production_branch=master
+release_branch_prefix=release
+develop_branch=develop
+version_header_filepath=config/include/version.h
+release_notes_filepath=RELEASE.md
