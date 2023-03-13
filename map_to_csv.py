@@ -42,59 +42,81 @@ if __name__ == "__main__":
             raise Exception("Unable to find start of sections in map file")
            
         #-----------------------------------------------------------------------
+
+        #Regex pattern to match section, address, size, and symbol
+        pattern = re.compile("^\s*(?:(?:\.[a-zA-Z0-9_\-]+)(?:\.[a-zA-Z0-9_\-]+)*)? +(0x[0-9a-fA-F]+) +(0x[0-9a-fA-F]+)? *(.*)?$")
         
-        #pattern = re.compile("^\s*(?P<section>.[a-zA-Z_\-]+)? +(?P<address>0x[0-9a-fA-F]+) +(?P<size>0x[0-9a-fA-F]+)? *(?P<symbol>.*)?")
-        #print(pattern.groupindex)
-        pattern = re.compile("^\s*(\.[a-zA-Z_\-]+)? +(0x[0-9a-fA-F]+) +(0x[0-9a-fA-F]+)? *(.*)?")
+        #Regex pattern to find the start of a new section
+        #pattern_start_of_section = re.compile("^\s*\*\((\.[a-zA-Z0-9_\-]+)\)?")
+        
+        #Regex pattern to find start of a new sub-section
+        pattern_match_start_of_subsection = re.compile("^\s*(\.[a-zA-Z0-9_\-]+)((?:\.[a-zA-Z0-9_\-]+)*)")
        
         with open(args.output, "w", newline="") as csv_file:
             #Start writing to CSV file
             csv_writer = csv.writer(csv_file, delimiter=",", quotechar="\"", quoting=csv.QUOTE_NONNUMERIC)
             
             #Write CSV header
-            csv_writer.writerow(["Section", "Address", "Size", "Object", "Object Size", "Symbol"])
+            csv_writer.writerow(["Section", "Sub-Section", "Address", "Size", "Object", "Object Size", "Symbol"])
             
             section = None
-            group_size = 0
-            object_file = ""
+            subsection = None
+            object_size = 0
+            object_name = ""
             
             line_count = 1
-            object_count = 0
             symbol_count = 0
+            section_count = 0
             
             while line:
-                match = pattern.match(line)
+                match_start_of_section = pattern_match_start_of_subsection.match(line)
                 
-                if match is not None:
-                    if match[1] is not None:
-                        section = match[1]
-                        
-                    address = match[2] if match[2] else ""
-                    size = ""
+                if match_start_of_section is not None:
+                    #Extract the name of the section
+                    if match_start_of_section[1] != section:
+                        section = match_start_of_section[1]
+                        section_count += 1
                     
-                    if match[3]:
-                        if args.hex_size: #Leave size as hex
-                            size = match[3]
-                        else: #convert size to decimal
-                            size = int(match[3].replace("0x",""), 16)
+                    #Extract the name of subsysection
+                    subsection = match_start_of_section[2]
+                      
+                
+                if section:
+                    match = pattern.match(line)
+                    
+                    if match is not None:    
+                        address = match[1]
+                        size = ""
+                        
+                        #Extract the "symbol" name from the line
+                        symbol = match[3] if match[3] else ""
+                        symbol_count += 1
+                        
+                        #Does this line have a "size"?
+                        if match[2]:
+                            if args.hex_size: #Leave size as hex
+                                size = match[2]
+                            else: #convert size to decimal
+                                size = int(match[2].replace("0x",""), 16)
                             
-                        group_size = size
+                            #Assume if lines following this do not have a "size", they share the size of this one
+                            object_size = size
+                            
+                            #Search for the last file path separator in the symbol name
+                            #If one exists, then this is probably a file path
+                            #We will just assign object_name to the last part of the part (i.e., file name)
+                            find1 = symbol.rfind("/")
+                            find2 = symbol.rfind("\\")
+                            findi = find1 if (find1 > find2) else find2
+                            object_name = symbol[findi + 1:] if find1 > 0 else symbol
                         
-                    symbol = match[4] if match[4] else ""
-                    symbol_count += 1
-                    if symbol.endswith(".o"):
-                        #This is an object file
-                        #Assume all following symbols are children of this file
-                        #UNTIL another object file is encountered
-                        object_file = symbol
-                        object_count += 1
-                    
-                    csv_writer.writerow([section, address, size, object_file, group_size, symbol])
-                    line_count += 1
+                        assert section is not None
+                        csv_writer.writerow([section, subsection if subsection else "", address if address else "", size, object_name, object_size, symbol])
+                        line_count += 1 #Count number of lines written to CSV
                         
                 line = f.readline()
             
             print("Wrote:")
-            print("\t" + str(line_count) + " lines")
-            print("\t" + str(object_count) + " object files")
-            print("\t" + str(symbol_count) + " symbols")
+            print(f"\t{line_count} lines")
+            print(f"\t{section_count} sections")
+            print(f"\t{symbol_count} symbols")
